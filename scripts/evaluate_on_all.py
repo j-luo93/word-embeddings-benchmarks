@@ -41,6 +41,7 @@ parser.add_option("-o", "--output", dest="output",
                   help="Path where to save results.",
                   default=None)
 
+parser.add_option("--lower", '-l', action='store_true', help='lowercase')
 parser.add_option("-c", "--clean_words", dest="clean_words",
                   help="Clean_words argument passed to load_embedding function. If set to True will remove"
                        "most of the non-alphanumeric characters, which should speed up evaluation.",
@@ -75,7 +76,7 @@ if __name__ == "__main__":
             load_kwargs['vocab_size'] = sum(1 for line in open(fname))
             load_kwargs['dim'] = len(next(open(fname)).split()) - 1
 
-        w = load_embedding(fname, format=format, normalize=True, lower=True, clean_words=options.clean_words,
+        w = load_embedding(fname, format=format, normalize=True, lower=options.lower, clean_words=options.clean_words,
                            load_kwargs=load_kwargs)
 
     out_fname = options.output if options.output else "results.csv"

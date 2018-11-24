@@ -33,7 +33,7 @@ _delchars = ''.join(_delchars)
 _delchars_table = dict((ord(char), None) for char in _delchars)
 
 
-def standardize_string(s, clean_words=True, lower=True, language="english"):
+def standardize_string(s, clean_words=True, lower=False, language="english"):
     """
     Ensures common convention across code. Converts to utf-8 and removes non-alphanumeric characters
 

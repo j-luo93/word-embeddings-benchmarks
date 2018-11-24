@@ -85,7 +85,14 @@ def evaluate_categorization(w, X, y, method="all", seed=None):
     assert method in ["all", "kmeans", "agglomerative"], "Uncrecognized method"
 
     mean_vector = np.mean(w.vectors, axis=0, keepdims=True)
-    words = np.vstack(w.get(word, mean_vector) for word in X.flatten())
+    flat_X = list(X.flatten())
+    
+    words = np.vstack(w.get(word, mean_vector) for word in flat_X)
+    mask = np.asarray(map(lambda x: x in w, flat_X))
+    X = np.asarray(X)[mask]
+    y = np.asarray(y)[mask]
+    words = words[mask]
+    assert len(X) == len(words)
     ids = np.random.RandomState(seed).choice(range(len(X)), len(X), replace=False)
 
     # Evaluate clustering on several hyperparameters of AgglomerativeClustering and
@@ -137,28 +144,66 @@ def evaluate_on_semeval_2012_2(w):
     mean_vector = np.mean(w.vectors, axis=0, keepdims=True)
     categories = data.y.keys()
     results = defaultdict(list)
+    missing_cat = 0
+    missing_prot = 0
+    missing_question = 0
+    total_prot = 0
+    total_question = 0
     for c in categories:
         # Get mean of left and right vector
         prototypes = data.X_prot[c]
-        prot_left = np.mean(np.vstack(w.get(word, mean_vector) for word in prototypes[:, 0]), axis=0)
-        prot_right = np.mean(np.vstack(w.get(word, mean_vector) for word in prototypes[:, 1]), axis=0)
+        # records missing prototypes
+        prot_mask_left = np.asarray(map(lambda x: x in w, prototypes[:, 0]))
+        prot_mask_right = np.asarray(map(lambda x: x in w, prototypes[:, 1]))
+        prot_mask = prot_mask_left & prot_mask_right
+        prot_deficit = len(prototypes) - prot_mask.sum()
+        assert prot_deficit >= 0
+        missing_prot += prot_deficit
+        total_prot += len(prototypes)
+        total_question += len(data.X[c])
+        
+        if prot_mask.sum() > 0: # you have to have at least one prototype
+          prot_left = np.mean(np.vstack(w.get(word, mean_vector) for word in prototypes[:, 0]), axis=0)
+          prot_right = np.mean(np.vstack(w.get(word, mean_vector) for word in prototypes[:, 1]), axis=0)
 
-        questions = data.X[c]
-        question_left, question_right = np.vstack(w.get(word, mean_vector) for word in questions[:, 0]), \
-                                        np.vstack(w.get(word, mean_vector) for word in questions[:, 1])
+          questions = data.X[c]
+          question_mask_left = np.asarray(map(lambda x: x in w, questions[:, 0]))
+          question_mask_right = np.asarray(map(lambda x: x in w, questions[:, 1]))
+          question_mask = question_mask_left & question_mask_right
+          question_deficit = len(questions) - question_mask.sum()
+          assert question_deficit >= 0
+          missing_question += question_deficit
+          
+          if question_mask.sum() > 0: # now we can start
+          
+            question_left, question_right = np.vstack(w.get(word, mean_vector) for word in questions[:, 0]), \
+                                            np.vstack(w.get(word, mean_vector) for word in questions[:, 1])
+            scores = np.dot(prot_left - prot_right, (question_left - question_right).T)
 
-        scores = np.dot(prot_left - prot_right, (question_left - question_right).T)
+            c_name = data.categories_names[c].split("_")[0]
+            # NaN happens when there are only 0s, which might happen for very rare words or
+            # very insufficient word vocabulary
+            # mask out unavailable questions
+            yc = np.asarray(data.y[c])[question_mask]
+            scores = scores[question_mask]
+            
+            cor = scipy.stats.spearmanr(scores, yc).correlation
+            results[c_name].append(0 if np.isnan(cor) else cor)
+          else: # no question available
+            missing_cat += 1
+        else: # no prototype available
+          missing_cat += 1
+          missing_question += len(data.X[c])
 
-        c_name = data.categories_names[c].split("_")[0]
-        # NaN happens when there are only 0s, which might happen for very rare words or
-        # very insufficient word vocabulary
-        cor = scipy.stats.spearmanr(scores, data.y[c]).correlation
-        results[c_name].append(0 if np.isnan(cor) else cor)
-
+    assert missing_cat == len(categories) - sum(map(len, results.values()))
     final_results = OrderedDict()
     final_results['all'] = sum(sum(v) for v in results.values()) / len(categories)
     for k in results:
         final_results[k] = sum(results[k]) / len(results[k])
+    final_results['missing_cat'] = missing_cat
+    final_results['missing_prot'] = missing_prot
+    final_results['missing_question'] = missing_question
+    logging.info('Missing %d/%d categories, %d/%d prototypes, %d/%d questions' %(missing_cat, len(categories), missing_prot, total_prot, missing_question, total_question))
     return pd.Series(final_results)
 
 
@@ -204,9 +249,9 @@ def evaluate_analogy(w, X, y, method="add", k=None, category=None, batch_size=10
     assert category is None or len(category) == y.shape[0], "Passed incorrect category list"
 
     solver = SimpleAnalogySolver(w=w, method=method, batch_size=batch_size, k=k)
-    y_pred = solver.predict(X)
 
     if category is not None:
+        y_pred = solver.predict(X)
         results = OrderedDict({"all": np.mean(y_pred == y)})
         count = OrderedDict({"all": len(y_pred)})
         correct = OrderedDict({"all": np.sum(y_pred == y)})
@@ -220,7 +265,8 @@ def evaluate_analogy(w, X, y, method="add", k=None, category=None, batch_size=10
                           pd.Series(count, name="count")],
                          axis=1)
     else:
-        return np.mean(y_pred == y)
+        return solver.score(X, y)
+        #return np.mean(y_pred == y)
 
 
 def evaluate_on_WordRep(w, max_pairs=1000, solver_kwargs={}):
@@ -325,9 +371,10 @@ def evaluate_similarity(w, X, y):
     missing_words = 0
     words = w.vocabulary.word_id
     for query in X:
-        for query_word in query:
-            if query_word not in words:
-                missing_words += 1
+      assert len(query) == 2
+      for query_word in query:
+        if query_word not in words:
+          missing_words += 1
     if missing_words > 0:
         logger.warning("Missing {} words. Will replace them with mean vector".format(missing_words))
 
@@ -335,7 +382,12 @@ def evaluate_similarity(w, X, y):
     mean_vector = np.mean(w.vectors, axis=0, keepdims=True)
     A = np.vstack(w.get(word, mean_vector) for word in X[:, 0])
     B = np.vstack(w.get(word, mean_vector) for word in X[:, 1])
+    mask_A = np.asarray(map(lambda x: x in w, X[:, 0]))
+    mask_B = np.asarray(map(lambda x: x in w, X[:, 1]))
+    mask = mask_A & mask_B
     scores = np.array([v1.dot(v2.T)/(np.linalg.norm(v1)*np.linalg.norm(v2)) for v1, v2 in zip(A, B)])
+    scores = scores[mask]
+    y = np.asarray(y)[mask]
     return scipy.stats.spearmanr(scores, y).correlation
 
 
@@ -388,7 +440,7 @@ def evaluate_on_all(w):
     for name, data in iteritems(analogy_tasks):
         analogy_results[name] = evaluate_analogy(w, data.X, data.y)
         logger.info("Analogy prediction accuracy on {} {}".format(name, analogy_results[name]))
-
+    
     analogy_results["SemEval2012_2"] = evaluate_on_semeval_2012_2(w)['all']
     logger.info("Analogy prediction accuracy on {} {}".format("SemEval2012", analogy_results["SemEval2012_2"]))
 

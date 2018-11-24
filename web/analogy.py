@@ -64,7 +64,10 @@ class SimpleAnalogySolver(sklearn.base.BaseEstimator):
         acc : float
           Accuracy
         """
-        return np.mean(y == self.predict(X))
+        y_hat, vocab = self.predict(X)
+        mask = np.asarray(map(lambda x: x[0][0] in vocab and x[0][1] in vocab and x[0][2] in vocab  and x[1] in vocab, zip(X, y)))
+        #return np.mean(y == self.predict(X))
+        return ((y == y_hat) * mask).sum() / (1e-8 + mask.sum())
 
     def predict(self, X):
         """
@@ -105,7 +108,6 @@ class SimpleAnalogySolver(sklearn.base.BaseEstimator):
             A, B, C = np.vstack(w.get(word, mean_vector) for word in X_b[:, 0]), \
                       np.vstack(w.get(word, mean_vector) for word in X_b[:, 1]), \
                       np.vstack(w.get(word, mean_vector) for word in X_b[:, 2])
-
             if self.method == "add":
                 D = np.dot(w.vectors, (B - A + C).T)
             elif self.method == "mul":
@@ -123,4 +125,4 @@ class SimpleAnalogySolver(sklearn.base.BaseEstimator):
 
             output.append([words[id] for id in D.argmax(axis=0)])
 
-        return np.array([item for sublist in output for item in sublist])
+        return np.array([item for sublist in output for item in sublist]), w
