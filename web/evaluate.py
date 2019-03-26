@@ -391,7 +391,7 @@ def evaluate_similarity(w, X, y):
     return scipy.stats.spearmanr(scores, y).correlation
 
 
-def evaluate_on_all(w):
+def evaluate_on_all(w, method='add'):
     """
     Evaluate Embedding on all fast-running benchmarks
 
@@ -438,7 +438,7 @@ def evaluate_on_all(w):
     analogy_results = {}
 
     for name, data in iteritems(analogy_tasks):
-        analogy_results[name] = evaluate_analogy(w, data.X, data.y)
+        analogy_results[name] = evaluate_analogy(w, data.X, data.y, method=method)
         logger.info("Analogy prediction accuracy on {} {}".format(name, analogy_results[name]))
     
     analogy_results["SemEval2012_2"] = evaluate_on_semeval_2012_2(w)['all']

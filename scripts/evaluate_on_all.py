@@ -41,6 +41,7 @@ parser.add_option("-o", "--output", dest="output",
                   help="Path where to save results.",
                   default=None)
 
+parser.add_option('--method', default='add')
 parser.add_option("--lower", '-l', action='store_true', help='lowercase')
 parser.add_option("-c", "--clean_words", dest="clean_words",
                   help="Clean_words argument passed to load_embedding function. If set to True will remove"
@@ -81,7 +82,8 @@ if __name__ == "__main__":
 
     out_fname = options.output if options.output else "results.csv"
 
-    results = evaluate_on_all(w)
+    import ipdb; ipdb.set_trace()
+    results = evaluate_on_all(w, method=options.method)
 
     logger.info("Saving results...")
     print(results)
